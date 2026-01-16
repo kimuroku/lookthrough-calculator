@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LP Look-Through Ownership Calculator</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 40px; }
+    h2 { margin: 0 0 18px; }
+    .container { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; align-items: start; }
+    .card { border: 1px solid #e6e6e6; border-radius: 10px; padding: 18px; }
+    .row { margin: 14px 0; }
+    label { display: block; font-size: 14px; margin-bottom: 6px; }
+    input[type="number"], input[readonly]{
+      width: 100%;
+      padding: 8px 10px;
+      border: 1px solid #d9d9d9;
+      border-radius: 6px;
+      font-size: 14px;
+      box-sizing: border-box;
+    }
+    input[readonly] { background: #f7f7f7; color: #333; }
+
+    /* Slider styling */
+    .sliderWrap { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: center; }
+    input[type="range"] { width: 100%; }
+    .sliderValue {
+      min-width: 90px;
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+      padding: 6px 10px;
+      border: 1px solid #d9d9d9;
+      border-radius: 6px;
+      background: #fff;
+      font-size: 14px;
+    }
+
+    .hint { font-size: 12px; color: #666; margin-top: 6px; }
+    .resultBox { font-size: 18px; background: #f6f6f6; padding: 20px; border-radius: 10px; }
+    .resultValue { font-size: 28px; margin-top: 10px; font-variant-numeric: tabular-nums; }
+    .muted { color: #666; }
+  </style>
+</head>
+
+<body>
+  <h2>LP Ownership (Look-Through Level)</h2>
+
+  <div class="container">
+    <!-- LEFT: Inputs + Calculated fields -->
+    <div class="card">
+
+      <!-- User inputs as sliders -->
+      <div class="row">
+        <label for="lpCommit">LP Commitment Amount ($m)</label>
+        <div class="sliderWrap">
+          <input
+            type="range"
+            id="lpCommit"
+            min="0"
+            max="10"
+            step="0.5"
+            value="1"
+          />
+          <div class="sliderValue" id="lpCommitVal">1.0</div>
+        </div>
+      </div>
+
+      <div class="row">
+        <label for="fundSize">Underlying Fund Size ($m)</label>
+        <div class="sliderWrap">
+          <input
+            type="range"
+            id="fundSize"
+            min="1"
+            max="100"
+            step="0.5"
+            value="20"
+          />
+          <div class="sliderValue" id="fundSizeVal">20.0</div>
+        </div>
+      </div>
+
+      <!-- Calculated -->
+      <div class="row">
+        <label for="lpShare">LP Share of Fund (%)</label>
+        <input type="number" id="lpShare" value="0" readonly />
+        <div class="hint">Calculated as LP Commitment Amount ÷ Underlying Fund Size</div>
+      </div>
+
+      <div class="row">
+        <label for="numPortcos">[Underlying Fund] Number of Portfolio Companies</label>
+        <div class="sliderWrap">
+          <input
+            type="range"
+            id="numPortcos"
+            min="1"
+            max="100"
+            step="1"
+            value="30"
+          />
+          <div class="sliderValue" id="numPortcosVal">30</div>
+        </div>
+      </div>
+
+      <!-- Calculated -->
+      <div class="row">
+        <label for="entryCheck">[Underlying Fund] Estimated Entry Check Size</label>
+        <input type="number" id="entryCheck" value="0" readonly />
+        <div class="hint">Calculated as Underlying Fund Size × 0.7 ÷ Number of Portfolio Companies; 0.7 to calculate rough amount of investible capital</div>
+      </div>
+
+      <div class="row">
+        <label for="entryValuation">[Underlying Fund] Target Entry Valuation ($m)</label>
+        <div class="sliderWrap">
+          <input
+            type="range"
+            id="entryValuation"
+            min="1"
+            max="100"
+            step="0.5"
+            value="20"
+          />
+          <div class="sliderValue" id="entryValuationVal">20.0</div>
+        </div>
+      </div>
+
+      <!-- Calculated -->
+      <div class="row">
+        <label for="entryOwnership">[Underlying Fund] Estimated Entry Ownership (%)</label>
+        <input type="number" id="entryOwnership" value="0" readonly />
+        <div class="hint">Calculated as Estimated Entry Check Size ÷ Target Entry Valuation</div>
+      </div>
+
+      <!-- Calculated -->
+      <div class="row">
+        <label for="lookThroughPerCo">LP Look-Through Ownership per Company (%)</label>
+        <input type="number" id="lookThroughPerCo" value="0" readonly />
+        <div class="hint">Calculated as LP Share of Fund × Estimated Entry Ownership</div>
+      </div>
+
+      <div class="row">
+        <label for="dilution">Assumed Dilution Through Exit (%)</label>
+        <div class="sliderWrap">
+          <input
+            type="range"
+            id="dilution"
+            min="0"
+            max="100"
+            step="1"
+            value="70"
+          />
+          <div class="sliderValue" id="dilutionVal">70</div>
+        </div>
+        <div class="hint muted">Higher dilution reduces look-through ownership at exit.</div>
+      </div>
+
+    </div>
+
+    <!-- RIGHT: Result only -->
+    <div class="resultBox">
+      <div><strong>LP Look-Through Ownership at Exit</strong></div>
+      <div class="resultValue" id="lookThroughAtExitText">—</div>
+      <div class="hint" id="calcNote"></div>
+    </div>
+  </div>
+
+  <script>
+    // Excel formulas (from your file):
+    // B3 = B1 / B2
+    // B5 = B2 * 0.7 / B4
+    // B7 = B5 / B6
+    // B8 = B3 * B7
+    // Exit = B8 * (1 - B9)   where B9 is dilution as a fraction (e.g., 0.30)
+
+    const els = {
+      lpCommit: document.getElementById("lpCommit"),
+      fundSize: document.getElementById("fundSize"),
+      lpShare: document.getElementById("lpShare"),
+      numPortcos: document.getElementById("numPortcos"),
+      entryCheck: document.getElementById("entryCheck"),
+      entryValuation: document.getElementById("entryValuation"),
+      entryOwnership: document.getElementById("entryOwnership"),
+      lookThroughPerCo: document.getElementById("lookThroughPerCo"),
+      dilution: document.getElementById("dilution"),
+      lookThroughAtExitText: document.getElementById("lookThroughAtExitText"),
+      calcNote: document.getElementById("calcNote"),
+
+      // value chips
+      lpCommitVal: document.getElementById("lpCommitVal"),
+      fundSizeVal: document.getElementById("fundSizeVal"),
+      numPortcosVal: document.getElementById("numPortcosVal"),
+      entryValuationVal: document.getElementById("entryValuationVal"),
+      dilutionVal: document.getElementById("dilutionVal")
+    };
+
+    function safeDiv(a, b) {
+      if (!isFinite(a) || !isFinite(b) || b === 0) return 0;
+      return a / b;
+    }
+
+    function toPct(x, decimals = 2) {
+      if (!isFinite(x)) return "—";
+      return (x * 100).toFixed(decimals) + "%";
+    }
+
+    function fmtNum(x, decimals = 1) {
+      if (!isFinite(x)) return "—";
+      return Number(x).toFixed(decimals);
+    }
+
+    function syncSliderChips() {
+      els.lpCommitVal.textContent = fmtNum(els.lpCommit.value, 1);
+      els.fundSizeVal.textContent = fmtNum(els.fundSize.value, 1);
+      els.numPortcosVal.textContent = String(parseInt(els.numPortcos.value, 10));
+      els.entryValuationVal.textContent = fmtNum(els.entryValuation.value, 1);
+      els.dilutionVal.textContent = String(parseInt(els.dilution.value, 10));
+    }
+
+    function calculate() {
+      const lpCommit = Number(els.lpCommit.value);              // $m
+      const fundSize = Number(els.fundSize.value);              // $m
+      const numPortcos = Number(els.numPortcos.value);          // count
+      const entryValuation = Number(els.entryValuation.value);  // $m
+      const dilutionPct = Number(els.dilution.value);           // %
+      const dilution = dilutionPct / 100;
+
+      // B3: LP Share of Fund (fraction)
+      const lpShare = safeDiv(lpCommit, fundSize);
+
+      // B5: Estimated Entry Check Size ($m)
+      const entryCheck = safeDiv(fundSize * 0.7, numPortcos);
+
+      // B7: Estimated Entry Ownership (fraction)
+      const entryOwnership = safeDiv(entryCheck, entryValuation);
+
+      // B8: LP Look-Through Ownership per Company (fraction)
+      const lookThroughPerCo = lpShare * entryOwnership;
+
+      // Exit: Apply dilution
+      const lookThroughAtExit = lookThroughPerCo * (1 - dilution);
+
+      // Populate calculated fields
+      els.lpShare.value = (lpShare * 100).toFixed(2);
+      els.entryCheck.value = entryCheck.toFixed(2);
+      els.entryOwnership.value = (entryOwnership * 100).toFixed(2);
+      els.lookThroughPerCo.value = (lookThroughPerCo * 100).toFixed(2);
+
+      // Right-side result
+      els.lookThroughAtExitText.textContent = toPct(lookThroughAtExit, 2);
+      els.calcNote.textContent =
+        "Calculated as (LP Look-Through Ownership per Company) × (1 − Assumed Dilution Through Exit).";
+    }
+
+    function onAnyInput() {
+      syncSliderChips();
+      calculate();
+    }
+
+    // Bind slider events
+    ["lpCommit", "fundSize", "numPortcos", "entryValuation", "dilution"].forEach(id => {
+      els[id].addEventListener("input", onAnyInput);
+    });
+
+    // Initial render
+    onAnyInput();
+  </script>
+</body>
+</html>
